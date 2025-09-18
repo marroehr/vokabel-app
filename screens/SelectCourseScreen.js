@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
-// --- Helpers: Distinct-Loader ------------------------------------------------
+// ---- Distinct Loader --------------------------------------------------------
 async function getDistinctGrades() {
   const { data, error } = await supabase
     .from('words')
@@ -13,8 +13,8 @@ async function getDistinctGrades() {
     .not('grade', 'is', null)
     .order('grade', { ascending: true });
 
-  if (error) throw error;
-  const unique = [...new Set((data ?? []).map((r) => r.grade))];
+  if (error) throw new Error(`getDistinctGrades: ${error.message}`);
+  const unique = [...new Set((data ?? []).map(r => r.grade))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
@@ -26,8 +26,8 @@ async function getDistinctUnits(grade) {
     .not('unit', 'is', null)
     .order('unit', { ascending: true });
 
-  if (error) throw error;
-  const unique = [...new Set((data ?? []).map((r) => r.unit))];
+  if (error) throw new Error(`getDistinctUnits: ${error.message}`);
+  const unique = [...new Set((data ?? []).map(r => r.unit))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
@@ -40,24 +40,19 @@ async function getDistinctStations(grade, unit) {
     .not('station', 'is', null)
     .order('station', { ascending: true });
 
-  if (error) throw error;
-  const unique = [...new Set((data ?? []).map((r) => r.station))];
+  if (error) throw new Error(`getDistinctStations: ${error.message}`);
+  const unique = [...new Set((data ?? []).map(r => r.station))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
-// --- Admin-Check via RPC -----------------------------------------------------
-// In Supabase per SQL angelegt:
-// create or replace function public.is_admin() returns boolean ...
+// ---- Admin-Check (RPC) ------------------------------------------------------
 async function checkIsAdmin() {
   const { data, error } = await supabase.rpc('is_admin');
-  if (error) {
-    console.error('Admin-Check Fehler:', error.message);
-    return false;
-  }
+  if (error) throw new Error(`is_admin RPC: ${error.message}`);
   return data === true;
 }
 
-// --- Styles ------------------------------------------------------------------
+// ---- Styles -----------------------------------------------------------------
 const chip = (activeColor, isActive) => ({
   paddingVertical: 10,
   paddingHorizontal: 14,
@@ -67,7 +62,7 @@ const chip = (activeColor, isActive) => ({
 const chipText = (isActive) => ({ color: isActive ? '#fff' : '#111' });
 const sectionTitle = { fontSize: 24, fontWeight: '700', marginBottom: 12 };
 
-// --- Component ---------------------------------------------------------------
+// ---- Component --------------------------------------------------------------
 export default function SelectCourseScreen() {
   const nav = useNavigation();
 
@@ -85,34 +80,44 @@ export default function SelectCourseScreen() {
 
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Initial: Klassen + Adminstatus laden
+  // Diagnose
+  const [dbCount, setDbCount] = useState(null);
+  const [lastError, setLastError] = useState('');
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoadingGrades(true);
+      setLastError('');
       try {
-        // User geladen? (für RPC)
-        const { data: { user } } = await supabase.auth.getUser();
+        // Wer bin ich?
+        const { data: { user }, error: uErr } = await supabase.auth.getUser();
+        if (uErr) throw uErr;
+
+        // Diagnose: Zeilen zählen
+        const { count, error: cErr } = await supabase
+          .from('words')
+          .select('*', { count: 'exact', head: true });
+        if (cErr) throw cErr;
+        if (mounted) setDbCount(count ?? 0);
 
         // Klassen laden
         const g = await getDistinctGrades();
         if (!mounted) return;
         setGrades(g);
-        if (g.length === 0) {
-          Alert.alert('Hinweis', 'Keine Klassen in der Datenbank gefunden.');
-        }
 
-        // Adminstatus nur prüfen, wenn eingeloggt
+        // Adminstatus prüfen (nur wenn eingeloggt)
         if (user) {
           const ok = await checkIsAdmin();
-          if (!mounted) return;
-          setIsAdmin(ok);
+          if (mounted) setIsAdmin(ok);
         } else {
-          setIsAdmin(false);
+          if (mounted) setIsAdmin(false);
         }
       } catch (e) {
         console.error(e);
-        Alert.alert('Fehler', 'Konnte Klassen/Adminstatus nicht laden.');
+        const msg = e?.message ?? String(e);
+        setLastError(msg);
+        Alert.alert('Fehler', msg);
       } finally {
         if (mounted) setLoadingGrades(false);
       }
@@ -120,7 +125,7 @@ export default function SelectCourseScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // Wenn Klasse geändert → Units laden & Auswahl zurücksetzen
+  // Units laden bei Klassenwechsel
   useEffect(() => {
     setUnit(null);
     setStation(null);
@@ -131,16 +136,15 @@ export default function SelectCourseScreen() {
     let mounted = true;
     (async () => {
       setLoadingUnits(true);
+      setLastError('');
       try {
         const u = await getDistinctUnits(grade);
-        if (!mounted) return;
-        setUnits(u);
-        if (u.length === 0) {
-          Alert.alert('Hinweis', `Keine Units für Klasse ${grade} gefunden.`);
-        }
+        if (mounted) setUnits(u);
       } catch (e) {
         console.error(e);
-        Alert.alert('Fehler', 'Konnte Units nicht laden.');
+        const msg = e?.message ?? String(e);
+        setLastError(msg);
+        Alert.alert('Fehler', msg);
       } finally {
         if (mounted) setLoadingUnits(false);
       }
@@ -148,7 +152,7 @@ export default function SelectCourseScreen() {
     return () => { mounted = false; };
   }, [grade]);
 
-  // Wenn Unit geändert → Stationen laden & Auswahl zurücksetzen
+  // Stationen laden bei Unitswechsel
   useEffect(() => {
     setStation(null);
     setStations([]);
@@ -157,16 +161,15 @@ export default function SelectCourseScreen() {
     let mounted = true;
     (async () => {
       setLoadingStations(true);
+      setLastError('');
       try {
         const s = await getDistinctStations(grade, unit);
-        if (!mounted) return;
-        setStations(s);
-        if (s.length === 0) {
-          Alert.alert('Hinweis', `Keine Stationen für Klasse ${grade}, Unit ${unit} gefunden.`);
-        }
+        if (mounted) setStations(s);
       } catch (e) {
         console.error(e);
-        Alert.alert('Fehler', 'Konnte Stationen nicht laden.');
+        const msg = e?.message ?? String(e);
+        setLastError(msg);
+        Alert.alert('Fehler', msg);
       } finally {
         if (mounted) setLoadingStations(false);
       }
@@ -181,13 +184,20 @@ export default function SelectCourseScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 24 }}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         <Text style={{ fontSize: 28, fontWeight: '800', marginBottom: 16 }}>Kurs wählen</Text>
 
-        {/* Klassen */}
+        {/* Diagnose-Info */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: '#666' }}>
+            DB rows in <Text style={{ fontWeight: '700' }}>words</Text>: {dbCount ?? '…'}
+            {isAdmin ? ' • Admin' : ''}
+          </Text>
+          {!!lastError && (
+            <Text style={{ color: '#b00020', marginTop: 4 }}>Fehler: {lastError}</Text>
+          )}
+        </View>
+
         <Text style={sectionTitle}>Klasse wählen</Text>
         {loadingGrades ? (
           <ActivityIndicator />
@@ -204,7 +214,6 @@ export default function SelectCourseScreen() {
           </View>
         )}
 
-        {/* Units */}
         {grade && (
           <>
             <Text style={sectionTitle}>Unit wählen</Text>
@@ -225,7 +234,6 @@ export default function SelectCourseScreen() {
           </>
         )}
 
-        {/* Stationen */}
         {grade && unit && (
           <>
             <Text style={sectionTitle}>Station wählen</Text>
@@ -246,38 +254,27 @@ export default function SelectCourseScreen() {
           </>
         )}
 
-        {/* Weiter */}
         <Pressable
           onPress={goQuiz}
           disabled={!grade || !unit || !station}
           style={{
-            opacity: !grade || !unit || !station ? 0.5 : 1,
-            paddingVertical: 12,
-            borderRadius: 10,
-            alignItems: 'center',
-            backgroundColor: '#111',
+            opacity: (!grade || !unit || !station) ? 0.5 : 1,
+            paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#111',
           }}
         >
           <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Weiter zum Quiz</Text>
         </Pressable>
 
-        {/* Admin-Bereich (nur sichtbar für Admins) */}
+        {/* Admin-Shortcut */}
         {isAdmin && (
           <Pressable
             onPress={() => nav.navigate('Admin')}
-            style={{
-              marginTop: 16,
-              paddingVertical: 12,
-              borderRadius: 10,
-              alignItems: 'center',
-              backgroundColor: '#0f172a',
-            }}
+            style={{ marginTop: 16, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#0f172a' }}
           >
             <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Admin-Bereich</Text>
           </Pressable>
         )}
 
-        {/* Back */}
         <Pressable onPress={() => nav.goBack()} style={{ marginTop: 16, alignSelf: 'center' }}>
           <Text style={{ color: '#1565c0', fontWeight: '600' }}>Zurück</Text>
         </Pressable>
