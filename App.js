@@ -8,6 +8,7 @@ import SelectCourseScreen from './screens/SelectCourseScreen';
 import QuizScreen from './screens/QuizScreen';
 import ReviewScreen from './screens/ReviewScreen';
 import TestHistoryScreen from './screens/TestHistoryScreen';
+import AdminScreen from './screens/AdminScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -52,6 +53,7 @@ export default function App() {
           <Stack.Screen name="Quiz" component={QuizScreen} options={{ title: 'Quiz' }} />
           <Stack.Screen name="Review" component={ReviewScreen} options={{ title: 'Ergebnis-Übersicht' }} />
           <Stack.Screen name="TestHistory" component={TestHistoryScreen} options={{ title: 'Mein Verlauf' }} />
+		  <Stack.Screen name="Admin" component={AdminScreen} options={{ title: 'Admin' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

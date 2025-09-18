@@ -1,10 +1,11 @@
 // screens/SelectCourseScreen.js
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, Pressable, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
+// --- Helpers: Distinct-Loader ------------------------------------------------
 async function getDistinctGrades() {
   const { data, error } = await supabase
     .from('words')
@@ -13,8 +14,7 @@ async function getDistinctGrades() {
     .order('grade', { ascending: true });
 
   if (error) throw error;
-  // Fallback-Unique + Sort
-  const unique = [...new Set((data ?? []).map(r => r.grade))];
+  const unique = [...new Set((data ?? []).map((r) => r.grade))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
@@ -27,7 +27,7 @@ async function getDistinctUnits(grade) {
     .order('unit', { ascending: true });
 
   if (error) throw error;
-  const unique = [...new Set((data ?? []).map(r => r.unit))];
+  const unique = [...new Set((data ?? []).map((r) => r.unit))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
@@ -41,10 +41,33 @@ async function getDistinctStations(grade, unit) {
     .order('station', { ascending: true });
 
   if (error) throw error;
-  const unique = [...new Set((data ?? []).map(r => r.station))];
+  const unique = [...new Set((data ?? []).map((r) => r.station))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
+// --- Admin-Check via RPC -----------------------------------------------------
+// In Supabase per SQL angelegt:
+// create or replace function public.is_admin() returns boolean ...
+async function checkIsAdmin() {
+  const { data, error } = await supabase.rpc('is_admin');
+  if (error) {
+    console.error('Admin-Check Fehler:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
+// --- Styles ------------------------------------------------------------------
+const chip = (activeColor, isActive) => ({
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  borderRadius: 10,
+  backgroundColor: isActive ? activeColor : '#eeeeee',
+});
+const chipText = (isActive) => ({ color: isActive ? '#fff' : '#111' });
+const sectionTitle = { fontSize: 24, fontWeight: '700', marginBottom: 12 };
+
+// --- Component ---------------------------------------------------------------
 export default function SelectCourseScreen() {
   const nav = useNavigation();
 
@@ -60,23 +83,44 @@ export default function SelectCourseScreen() {
   const [loadingUnits, setLoadingUnits] = useState(false);
   const [loadingStations, setLoadingStations] = useState(false);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Initial: Klassen + Adminstatus laden
   useEffect(() => {
+    let mounted = true;
     (async () => {
       setLoadingGrades(true);
       try {
+        // User geladen? (für RPC)
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // Klassen laden
         const g = await getDistinctGrades();
+        if (!mounted) return;
         setGrades(g);
-        if (g.length === 0) Alert.alert('Hinweis', 'Keine Klassen in der Datenbank gefunden.');
+        if (g.length === 0) {
+          Alert.alert('Hinweis', 'Keine Klassen in der Datenbank gefunden.');
+        }
+
+        // Adminstatus nur prüfen, wenn eingeloggt
+        if (user) {
+          const ok = await checkIsAdmin();
+          if (!mounted) return;
+          setIsAdmin(ok);
+        } else {
+          setIsAdmin(false);
+        }
       } catch (e) {
         console.error(e);
-        Alert.alert('Fehler', 'Konnte Klassen nicht laden.');
+        Alert.alert('Fehler', 'Konnte Klassen/Adminstatus nicht laden.');
       } finally {
-        setLoadingGrades(false);
+        if (mounted) setLoadingGrades(false);
       }
     })();
+    return () => { mounted = false; };
   }, []);
 
-  // Wenn Klasse geändert → Units laden
+  // Wenn Klasse geändert → Units laden & Auswahl zurücksetzen
   useEffect(() => {
     setUnit(null);
     setStation(null);
@@ -84,131 +128,160 @@ export default function SelectCourseScreen() {
     setStations([]);
     if (!grade) return;
 
+    let mounted = true;
     (async () => {
       setLoadingUnits(true);
       try {
         const u = await getDistinctUnits(grade);
+        if (!mounted) return;
         setUnits(u);
-        if (u.length === 0) Alert.alert('Hinweis', `Keine Units für Klasse ${grade} gefunden.`);
+        if (u.length === 0) {
+          Alert.alert('Hinweis', `Keine Units für Klasse ${grade} gefunden.`);
+        }
       } catch (e) {
         console.error(e);
         Alert.alert('Fehler', 'Konnte Units nicht laden.');
       } finally {
-        setLoadingUnits(false);
+        if (mounted) setLoadingUnits(false);
       }
     })();
+    return () => { mounted = false; };
   }, [grade]);
 
-  // Wenn Unit geändert → Stationen laden
+  // Wenn Unit geändert → Stationen laden & Auswahl zurücksetzen
   useEffect(() => {
     setStation(null);
     setStations([]);
     if (!grade || !unit) return;
 
+    let mounted = true;
     (async () => {
       setLoadingStations(true);
       try {
         const s = await getDistinctStations(grade, unit);
+        if (!mounted) return;
         setStations(s);
-        if (s.length === 0) Alert.alert('Hinweis', `Keine Stationen für Klasse ${grade}, Unit ${unit} gefunden.`);
+        if (s.length === 0) {
+          Alert.alert('Hinweis', `Keine Stationen für Klasse ${grade}, Unit ${unit} gefunden.`);
+        }
       } catch (e) {
         console.error(e);
         Alert.alert('Fehler', 'Konnte Stationen nicht laden.');
       } finally {
-        setLoadingStations(false);
+        if (mounted) setLoadingStations(false);
       }
     })();
+    return () => { mounted = false; };
   }, [grade, unit]);
+
+  const goQuiz = useCallback(() => {
+    if (!grade || !unit || !station) return;
+    nav.navigate('Quiz', { grade, unit, station });
+  }, [nav, grade, unit, station]);
 
   return (
     <ScreenContainer>
-      <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Klasse wählen</Text>
-      {loadingGrades ? (
-        <ActivityIndicator />
-      ) : (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-          {grades.map(g => (
-            <Pressable
-              key={String(g)}
-              onPress={() => setGrade(g)}
-              style={{
-                paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8,
-                backgroundColor: g === grade ? '#2e7d32' : '#eeeeee',
-              }}
-            >
-              <Text style={{ color: g === grade ? '#fff' : '#111' }}>{String(g)}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {grade && (
-        <>
-          <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Unit wählen</Text>
-          {loadingUnits ? (
-            <ActivityIndicator />
-          ) : (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-              {units.map(u => (
-                <Pressable
-                  key={String(u)}
-                  onPress={() => setUnit(u)}
-                  style={{
-                    paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8,
-                    backgroundColor: u === unit ? '#1565c0' : '#eeeeee',
-                  }}
-                >
-                  <Text style={{ color: u === unit ? '#fff' : '#111' }}>{String(u)}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </>
-      )}
-
-      {grade && unit && (
-        <>
-          <Text style={{ fontSize: 24, fontWeight: '700', marginBottom: 12 }}>Station wählen</Text>
-          {loadingStations ? (
-            <ActivityIndicator />
-          ) : (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-              {stations.map(s => (
-                <Pressable
-                  key={String(s)}
-                  onPress={() => setStation(s)}
-                  style={{
-                    paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8,
-                    backgroundColor: s === station ? '#6a1b9a' : '#eeeeee',
-                  }}
-                >
-                  <Text style={{ color: s === station ? '#fff' : '#111' }}>{String(s)}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-        </>
-      )}
-
-      <Pressable
-        onPress={() => {
-          if (!grade || !unit || !station) return;
-          // an Quiz übergeben
-          nav.navigate('Quiz', { grade, unit, station });
-        }}
-        disabled={!grade || !unit || !station}
-        style={{
-          opacity: (!grade || !unit || !station) ? 0.5 : 1,
-          paddingVertical: 12, borderRadius: 10, alignItems: 'center',
-          backgroundColor: '#111',
-        }}
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={{ color: '#fff', fontSize: 16 }}>Weiter zum Quiz</Text>
-      </Pressable>
+        <Text style={{ fontSize: 28, fontWeight: '800', marginBottom: 16 }}>Kurs wählen</Text>
 
-      <Pressable onPress={() => nav.goBack()} style={{ marginTop: 16, alignSelf: 'center' }}>
-        <Text style={{ color: '#1565c0' }}>Zurück</Text>
-      </Pressable>
+        {/* Klassen */}
+        <Text style={sectionTitle}>Klasse wählen</Text>
+        {loadingGrades ? (
+          <ActivityIndicator />
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+            {grades.map((g) => {
+              const active = g === grade;
+              return (
+                <Pressable key={String(g)} onPress={() => setGrade(g)} style={chip('#2e7d32', active)}>
+                  <Text style={chipText(active)}>{String(g)}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Units */}
+        {grade && (
+          <>
+            <Text style={sectionTitle}>Unit wählen</Text>
+            {loadingUnits ? (
+              <ActivityIndicator />
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                {units.map((u) => {
+                  const active = u === unit;
+                  return (
+                    <Pressable key={String(u)} onPress={() => setUnit(u)} style={chip('#1565c0', active)}>
+                      <Text style={chipText(active)}>{String(u)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
+
+        {/* Stationen */}
+        {grade && unit && (
+          <>
+            <Text style={sectionTitle}>Station wählen</Text>
+            {loadingStations ? (
+              <ActivityIndicator />
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+                {stations.map((s) => {
+                  const active = s === station;
+                  return (
+                    <Pressable key={String(s)} onPress={() => setStation(s)} style={chip('#6a1b9a', active)}>
+                      <Text style={chipText(active)}>{String(s)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
+
+        {/* Weiter */}
+        <Pressable
+          onPress={goQuiz}
+          disabled={!grade || !unit || !station}
+          style={{
+            opacity: !grade || !unit || !station ? 0.5 : 1,
+            paddingVertical: 12,
+            borderRadius: 10,
+            alignItems: 'center',
+            backgroundColor: '#111',
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Weiter zum Quiz</Text>
+        </Pressable>
+
+        {/* Admin-Bereich (nur sichtbar für Admins) */}
+        {isAdmin && (
+          <Pressable
+            onPress={() => nav.navigate('Admin')}
+            style={{
+              marginTop: 16,
+              paddingVertical: 12,
+              borderRadius: 10,
+              alignItems: 'center',
+              backgroundColor: '#0f172a',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Admin-Bereich</Text>
+          </Pressable>
+        )}
+
+        {/* Back */}
+        <Pressable onPress={() => nav.goBack()} style={{ marginTop: 16, alignSelf: 'center' }}>
+          <Text style={{ color: '#1565c0', fontWeight: '600' }}>Zurück</Text>
+        </Pressable>
+      </ScrollView>
     </ScreenContainer>
   );
 }
