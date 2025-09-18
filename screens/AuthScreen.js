@@ -5,40 +5,70 @@ import { useNavigation } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
-export default function AuthScreen({}) {
+export default function AuthScreen() {
   const nav = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
 
+  function normalizeInputs() {
+    return {
+      emailNorm: (email || '').trim().toLowerCase(),
+      passwordNorm: (password || '').trim(),
+    };
+  }
+
   async function signUp() {
-    setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: '' } },
-    });
-    setLoading(false);
-    if (error) {
-      console.error('signup error', error);
-      Alert.alert('Signup-Fehler', error.message);
+    const { emailNorm, passwordNorm } = normalizeInputs();
+    if (!emailNorm || !passwordNorm) {
+      Alert.alert('Hinweis', 'Bitte E-Mail und Passwort eingeben.');
       return;
     }
-    Alert.alert('Erfolg', 'Konto erstellt. Du bist eingeloggt (E-Mail-Bestätigung ist deaktiviert).');
-    nav.navigate('SelectCourse');
+
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signUp({
+        email: emailNorm,
+        password: passwordNorm,
+        options: { data: { full_name: '' } },
+      });
+      if (error) throw error;
+
+      Alert.alert('Erfolg', 'Konto erstellt. Du bist eingeloggt.');
+      // Neu: nach Home, nicht direkt zu SelectCourse
+      nav.replace('Home');
+    } catch (e) {
+      console.error('signup error', e);
+      Alert.alert('Signup-Fehler', e.message || 'Unbekannter Fehler.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function signIn() {
-    setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      console.error('login error', error);
-      Alert.alert('Login-Fehler', error.message);
+    const { emailNorm, passwordNorm } = normalizeInputs();
+    if (!emailNorm || !passwordNorm) {
+      Alert.alert('Hinweis', 'Bitte E-Mail und Passwort eingeben.');
       return;
     }
-    nav.navigate('SelectCourse');
+
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailNorm,
+        password: passwordNorm,
+      });
+      if (error) throw error;
+
+      // Neu: nach Home, nicht direkt zu SelectCourse
+      nav.replace('Home');
+    } catch (e) {
+      console.error('login error', e);
+      Alert.alert('Login-Fehler', e.message || 'Unbekannter Fehler.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
