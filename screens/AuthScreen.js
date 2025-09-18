@@ -9,63 +9,42 @@ export default function AuthScreen() {
   const nav = useNavigation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
   const [loading, setLoading] = useState(false);
 
-  function normalizeInputs() {
-    return {
-      emailNorm: (email || '').trim().toLowerCase(),
-      passwordNorm: (password || '').trim(),
-    };
-  }
-
   async function signUp() {
-    const { emailNorm, passwordNorm } = normalizeInputs();
-    if (!emailNorm || !passwordNorm) {
-      Alert.alert('Hinweis', 'Bitte E-Mail und Passwort eingeben.');
-      return;
-    }
-
+    setLoading(true);
     try {
-      setLoading(true);
       const { error } = await supabase.auth.signUp({
-        email: emailNorm,
-        password: passwordNorm,
+        email,
+        password,
         options: { data: { full_name: '' } },
       });
       if (error) throw error;
-
       Alert.alert('Erfolg', 'Konto erstellt. Du bist eingeloggt.');
-      // Neu: nach Home, nicht direkt zu SelectCourse
-      nav.replace('Home');
+      // DIAGNOSE: sofort /words anpingen
+      const ping = await supabase.from('words').select('*', { count: 'exact', head: true }).limit(1);
+      console.log('[PING after signUp] status', ping.status, 'error', ping.error?.message || null);
+      nav.navigate('Home'); // zuerst Home, dort wird Admin geprüft
     } catch (e) {
-      console.error('signup error', e);
-      Alert.alert('Signup-Fehler', e.message || 'Unbekannter Fehler.');
+      console.error('[signup error]', e);
+      Alert.alert('Signup-Fehler', e.message ?? String(e));
     } finally {
       setLoading(false);
     }
   }
 
   async function signIn() {
-    const { emailNorm, passwordNorm } = normalizeInputs();
-    if (!emailNorm || !passwordNorm) {
-      Alert.alert('Hinweis', 'Bitte E-Mail und Passwort eingeben.');
-      return;
-    }
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailNorm,
-        password: passwordNorm,
-      });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-
-      // Neu: nach Home, nicht direkt zu SelectCourse
-      nav.replace('Home');
+      // DIAGNOSE: sofort /words anpingen
+      const ping = await supabase.from('words').select('*', { count: 'exact', head: true }).limit(1);
+      console.log('[PING after signIn] status', ping.status, 'error', ping.error?.message || null);
+      nav.navigate('Home');
     } catch (e) {
-      console.error('login error', e);
-      Alert.alert('Login-Fehler', e.message || 'Unbekannter Fehler.');
+      console.log('[login error]', e);
+      Alert.alert('Login-Fehler', e.message ?? String(e));
     } finally {
       setLoading(false);
     }

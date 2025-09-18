@@ -1,16 +1,22 @@
 // screens/HomeScreen.js
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, Pressable, Alert } from 'react-native';
+import { Text, ActivityIndicator, Pressable, Alert } from 'react-native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
 async function checkIsAdmin() {
-  const { data, error } = await supabase.rpc('is_admin');
-  if (error) {
-    console.error('is_admin RPC error:', error.message);
+  try {
+    const { data, error, status } = await supabase.rpc('is_admin');
+    if (error) {
+      console.log('[is_admin RPC] status', status, 'error', error.message);
+      return false;
+    }
+    console.log('[is_admin RPC] status', status, 'data', data);
+    return data === true;
+  } catch (e) {
+    console.log('[is_admin EXC]', e?.message);
     return false;
   }
-  return data === true;
 }
 
 const Btn = ({ label, onPress, bg = '#111' }) => (
@@ -31,19 +37,22 @@ export default function HomeScreen({ navigation }) {
     (async () => {
       try {
         const { data: { user }, error } = await supabase.auth.getUser();
+        console.log('[getUser] error?', error?.message || null, 'user?', !!user);
         if (error) throw error;
         if (!user) {
           navigation.replace('Auth');
           return;
         }
-        // Name (optional)
-        const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
+
+        const { data: prof, error: pErr, status: pStatus } =
+          await supabase.from('profiles').select('full_name').eq('id', user.id).single();
+        console.log('[profiles fetch] status', pStatus, 'error', pErr?.message || null, 'name', prof?.full_name);
         setFullName(prof?.full_name || '');
-        // Admin?
+
         const admin = await checkIsAdmin();
         setIsAdmin(admin);
       } catch (e) {
-        console.error(e);
+        console.error('[Home init error]', e);
         Alert.alert('Fehler', 'Konnte Benutzerstatus nicht laden.');
       } finally {
         setLoading(false);

@@ -5,34 +5,38 @@ import { useNavigation } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
-// ---- Distinct Loader --------------------------------------------------------
+// Distinct-Helper
 async function getDistinctGrades() {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('words')
     .select('grade', { distinct: true })
     .not('grade', 'is', null)
     .order('grade', { ascending: true });
 
-  if (error) throw new Error(`getDistinctGrades: ${error.message}`);
-  const unique = [...new Set((data ?? []).map(r => r.grade))];
+  console.log('[getDistinctGrades] status', status, 'error', error?.message || null, 'rows', data?.length);
+  if (error) throw error;
+
+  const unique = [...new Set((data ?? []).map((r) => r.grade))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
 async function getDistinctUnits(grade) {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('words')
     .select('unit', { distinct: true })
     .eq('grade', grade)
     .not('unit', 'is', null)
     .order('unit', { ascending: true });
 
-  if (error) throw new Error(`getDistinctUnits: ${error.message}`);
-  const unique = [...new Set((data ?? []).map(r => r.unit))];
+  console.log('[getDistinctUnits] status', status, 'error', error?.message || null, 'rows', data?.length);
+  if (error) throw error;
+
+  const unique = [...new Set((data ?? []).map((r) => r.unit))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
 async function getDistinctStations(grade, unit) {
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from('words')
     .select('station', { distinct: true })
     .eq('grade', grade)
@@ -40,29 +44,13 @@ async function getDistinctStations(grade, unit) {
     .not('station', 'is', null)
     .order('station', { ascending: true });
 
-  if (error) throw new Error(`getDistinctStations: ${error.message}`);
-  const unique = [...new Set((data ?? []).map(r => r.station))];
+  console.log('[getDistinctStations] status', status, 'error', error?.message || null, 'rows', data?.length);
+  if (error) throw error;
+
+  const unique = [...new Set((data ?? []).map((r) => r.station))];
   return unique.sort((a, b) => Number(a) - Number(b));
 }
 
-// ---- Admin-Check (RPC) ------------------------------------------------------
-async function checkIsAdmin() {
-  const { data, error } = await supabase.rpc('is_admin');
-  if (error) throw new Error(`is_admin RPC: ${error.message}`);
-  return data === true;
-}
-
-// ---- Styles -----------------------------------------------------------------
-const chip = (activeColor, isActive) => ({
-  paddingVertical: 10,
-  paddingHorizontal: 14,
-  borderRadius: 10,
-  backgroundColor: isActive ? activeColor : '#eeeeee',
-});
-const chipText = (isActive) => ({ color: isActive ? '#fff' : '#111' });
-const sectionTitle = { fontSize: 24, fontWeight: '700', marginBottom: 12 };
-
-// ---- Component --------------------------------------------------------------
 export default function SelectCourseScreen() {
   const nav = useNavigation();
 
@@ -78,46 +66,26 @@ export default function SelectCourseScreen() {
   const [loadingUnits, setLoadingUnits] = useState(false);
   const [loadingStations, setLoadingStations] = useState(false);
 
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  // Diagnose
-  const [dbCount, setDbCount] = useState(null);
-  const [lastError, setLastError] = useState('');
-
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoadingGrades(true);
-      setLastError('');
       try {
-        // Wer bin ich?
-        const { data: { user }, error: uErr } = await supabase.auth.getUser();
-        if (uErr) throw uErr;
+        // 1) Test: words erreichbar?
+        const test = await supabase.from('words').select('id, grade').limit(3);
+        console.log('[words test] status', test.status, 'error', test.error?.message || null, 'rows', test.data?.length);
 
-        // Diagnose: Zeilen zählen
-        const { count, error: cErr } = await supabase
-          .from('words')
-          .select('*', { count: 'exact', head: true });
-        if (cErr) throw cErr;
-        if (mounted) setDbCount(count ?? 0);
-
-        // Klassen laden
+        // 2) eigentliche Klassen
         const g = await getDistinctGrades();
         if (!mounted) return;
         setGrades(g);
-
-        // Adminstatus prüfen (nur wenn eingeloggt)
-        if (user) {
-          const ok = await checkIsAdmin();
-          if (mounted) setIsAdmin(ok);
-        } else {
-          if (mounted) setIsAdmin(false);
+        console.log('[grades]', g);
+        if (g.length === 0) {
+          Alert.alert('Hinweis', 'Keine Klassen in der Datenbank gefunden.');
         }
       } catch (e) {
-        console.error(e);
-        const msg = e?.message ?? String(e);
-        setLastError(msg);
-        Alert.alert('Fehler', msg);
+        console.error('[grades load EXC]', e);
+        Alert.alert('Fehler', 'Konnte Klassen nicht laden.');
       } finally {
         if (mounted) setLoadingGrades(false);
       }
@@ -125,7 +93,6 @@ export default function SelectCourseScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // Units laden bei Klassenwechsel
   useEffect(() => {
     setUnit(null);
     setStation(null);
@@ -136,15 +103,15 @@ export default function SelectCourseScreen() {
     let mounted = true;
     (async () => {
       setLoadingUnits(true);
-      setLastError('');
       try {
         const u = await getDistinctUnits(grade);
-        if (mounted) setUnits(u);
+        if (!mounted) return;
+        setUnits(u);
+        console.log('[units]', u);
+        if (u.length === 0) Alert.alert('Hinweis', `Keine Units für Klasse ${grade} gefunden.`);
       } catch (e) {
-        console.error(e);
-        const msg = e?.message ?? String(e);
-        setLastError(msg);
-        Alert.alert('Fehler', msg);
+        console.error('[units load EXC]', e);
+        Alert.alert('Fehler', 'Konnte Units nicht laden.');
       } finally {
         if (mounted) setLoadingUnits(false);
       }
@@ -152,7 +119,6 @@ export default function SelectCourseScreen() {
     return () => { mounted = false; };
   }, [grade]);
 
-  // Stationen laden bei Unitswechsel
   useEffect(() => {
     setStation(null);
     setStations([]);
@@ -161,15 +127,15 @@ export default function SelectCourseScreen() {
     let mounted = true;
     (async () => {
       setLoadingStations(true);
-      setLastError('');
       try {
         const s = await getDistinctStations(grade, unit);
-        if (mounted) setStations(s);
+        if (!mounted) return;
+        setStations(s);
+        console.log('[stations]', s);
+        if (s.length === 0) Alert.alert('Hinweis', `Keine Stationen für Klasse ${grade}, Unit ${unit} gefunden.`);
       } catch (e) {
-        console.error(e);
-        const msg = e?.message ?? String(e);
-        setLastError(msg);
-        Alert.alert('Fehler', msg);
+        console.error('[stations load EXC]', e);
+        Alert.alert('Fehler', 'Konnte Stationen nicht laden.');
       } finally {
         if (mounted) setLoadingStations(false);
       }
@@ -182,21 +148,19 @@ export default function SelectCourseScreen() {
     nav.navigate('Quiz', { grade, unit, station });
   }, [nav, grade, unit, station]);
 
+  const chip = (activeColor, isActive) => ({
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: isActive ? activeColor : '#eeeeee',
+  });
+  const chipText = (isActive) => ({ color: isActive ? '#fff' : '#111' });
+  const sectionTitle = { fontSize: 24, fontWeight: '700', marginBottom: 12 };
+
   return (
     <ScreenContainer>
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         <Text style={{ fontSize: 28, fontWeight: '800', marginBottom: 16 }}>Kurs wählen</Text>
-
-        {/* Diagnose-Info */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ color: '#666' }}>
-            DB rows in <Text style={{ fontWeight: '700' }}>words</Text>: {dbCount ?? '…'}
-            {isAdmin ? ' • Admin' : ''}
-          </Text>
-          {!!lastError && (
-            <Text style={{ color: '#b00020', marginTop: 4 }}>Fehler: {lastError}</Text>
-          )}
-        </View>
 
         <Text style={sectionTitle}>Klasse wählen</Text>
         {loadingGrades ? (
@@ -258,22 +222,15 @@ export default function SelectCourseScreen() {
           onPress={goQuiz}
           disabled={!grade || !unit || !station}
           style={{
-            opacity: (!grade || !unit || !station) ? 0.5 : 1,
-            paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#111',
+            opacity: !grade || !unit || !station ? 0.5 : 1,
+            paddingVertical: 12,
+            borderRadius: 10,
+            alignItems: 'center',
+            backgroundColor: '#111',
           }}
         >
           <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Weiter zum Quiz</Text>
         </Pressable>
-
-        {/* Admin-Shortcut */}
-        {isAdmin && (
-          <Pressable
-            onPress={() => nav.navigate('Admin')}
-            style={{ marginTop: 16, paddingVertical: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#0f172a' }}
-          >
-            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Admin-Bereich</Text>
-          </Pressable>
-        )}
 
         <Pressable onPress={() => nav.goBack()} style={{ marginTop: 16, alignSelf: 'center' }}>
           <Text style={{ color: '#1565c0', fontWeight: '600' }}>Zurück</Text>
