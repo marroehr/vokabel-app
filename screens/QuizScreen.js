@@ -5,6 +5,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
+// kleines Helferlein zum Mischen
 function shuffle(arr) {
   return [...arr].sort(() => Math.random() - 0.5);
 }
@@ -16,6 +17,9 @@ export default function QuizScreen() {
   const unit = params?.unit;
   const station = params?.station;
 
+  // ↓ NEU: Richtung des Quizzes (de->en | en->de)
+  const [direction, setDirection] = useState('de2en');
+
   // Voller Pool
   const [pool, setPool] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +29,7 @@ export default function QuizScreen() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [finished, setFinished] = useState(false);
 
-  // Frage
+  // Aktuelle Frage
   const [questionWord, setQuestionWord] = useState(null);
   const [options, setOptions] = useState([]);
   const [correctIndex, setCorrectIndex] = useState(null);
@@ -35,7 +39,7 @@ export default function QuizScreen() {
   // Punkte
   const [correctCount, setCorrectCount] = useState(0);
 
-  // Review (für deinen ReviewScreen)
+  // Review-Daten
   const [attempts, setAttempts] = useState([]);
 
   // Ergebnis einmalig gesichert?
@@ -47,6 +51,7 @@ export default function QuizScreen() {
     [currentIdx, picked, total]
   );
 
+  // Daten für die Auswahl laden
   const fetchPool = useCallback(async () => {
     setLoading(true);
     try {
@@ -81,6 +86,7 @@ export default function QuizScreen() {
     }
   }, [grade, unit, station]);
 
+  // Frage aufbauen – richtet sich nach "direction"
   const buildQuestion = useCallback(() => {
     if (!pool.length || !order.length || currentIdx >= order.length) {
       setQuestionWord(null);
@@ -95,18 +101,38 @@ export default function QuizScreen() {
       else setCurrentIdx(i => i + 1);
       return;
     }
-    const distractors = shuffle(pool.filter(w => w.id !== correct.id)).slice(0, 3);
-    const opts = shuffle([correct.en, ...distractors.map(d => d.en)]);
-    const idx = opts.indexOf(correct.en);
 
-    setQuestionWord(correct);
+    const distractors = shuffle(pool.filter(w => w.id !== correct.id)).slice(0, 3);
+
+    // ↓ NEU: je nach Richtung andere Seiten fragen/antworten
+    const qText = direction === 'de2en' ? correct.de : correct.en;
+    const correctText = direction === 'de2en' ? correct.en : correct.de;
+    const distractorTexts = distractors.map(d => (direction === 'de2en' ? d.en : d.de));
+
+    const opts = shuffle([correctText, ...distractorTexts]);
+    const idx = opts.indexOf(correctText);
+
+    setQuestionWord({ ...correct, qText, correctText });
     setOptions(opts);
     setCorrectIndex(idx);
     setPicked(null);
-  }, [pool, order, currentIdx]);
+  }, [pool, order, currentIdx, direction]);
 
+  // initial + wenn Auswahl oder Richtung geändert wird
   useEffect(() => { fetchPool(); }, [fetchPool]);
   useEffect(() => { if (!loading && !finished) buildQuestion(); }, [loading, buildQuestion, finished, currentIdx]);
+  // bei Richtungswechsel Quiz neu starten (gleicher Pool)
+  useEffect(() => {
+    if (!pool.length) return;
+    const ids = shuffle(pool.map(w => w.id));
+    setOrder(ids);
+    setCurrentIdx(0);
+    setFinished(false);
+    setCorrectCount(0);
+    setPicked(null);
+    setAttempts([]);
+    setSavedResult(false);
+  }, [direction]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function answer(idx) {
     if (picked !== null || !questionWord) return;
@@ -120,16 +146,19 @@ export default function QuizScreen() {
         id: questionWord.id,
         de: questionWord.de,
         en: questionWord.en,
+        qText: questionWord.qText,        // angezeigte Frage
         chosenIndex: idx,
         chosenText: options[idx],
         correctIndex,
         correctText: options[correctIndex],
         isCorrect,
         allOptions: options,
+        direction,
       },
     ]);
 
     try {
+      // optionales Logging (falls vorhanden)
       await supabase.rpc('record_attempt', { p_word_id: questionWord.id, p_is_correct: isCorrect });
     } catch (e) {
       console.error('record_attempt error', e);
@@ -164,7 +193,7 @@ export default function QuizScreen() {
     return Math.round((correctCount / total) * 100);
   }, [correctCount, total]);
 
-  // === NEU: Ergebnis einmalig nach Abschluss speichern ===
+  // Ergebnis einmalig nach Abschluss speichern
   useEffect(() => {
     if (!finished || savedResult || total === 0) return;
 
@@ -172,7 +201,7 @@ export default function QuizScreen() {
       try {
         const { data: userRes } = await supabase.auth.getUser();
         const user = userRes?.user;
-        if (!user) return; // nicht eingeloggt? Dann nix speichern
+        if (!user) return;
 
         await supabase.from('test_results').insert({
           user_id: user.id,
@@ -182,17 +211,16 @@ export default function QuizScreen() {
           station,
           total,
           correct: correctCount,
-          percent
-          // created_at setzt DB automatisch
+          percent,
+          mode: direction, // Richtung mit speichern (optional Spalte in DB anlegen)
         });
 
         setSavedResult(true);
       } catch (e) {
         console.error('saveResult error', e);
-        // Kein Alert nötig – Ergebnisanzeige soll nicht blockiert werden
       }
     })();
-  }, [finished, savedResult, total, correctCount, percent, grade, unit, station]);
+  }, [finished, savedResult, total, correctCount, percent, grade, unit, station, direction]);
 
   return (
     <ScreenContainer>
@@ -203,6 +231,28 @@ export default function QuizScreen() {
       <Pressable onPress={() => nav.goBack()} style={{ marginBottom: 8, alignSelf: 'flex-start' }}>
         <Text style={{ color: '#1565c0' }}>← Zurück</Text>
       </Pressable>
+
+      {/* Richtungs-Umschalter */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <Pressable
+          onPress={() => setDirection('de2en')}
+          style={{
+            paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10,
+            backgroundColor: direction === 'de2en' ? '#1565c0' : '#e5e7eb'
+          }}
+        >
+          <Text style={{ color: direction === 'de2en' ? '#fff' : '#111' }}>Deutsch → Englisch</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setDirection('en2de')}
+          style={{
+            paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10,
+            backgroundColor: direction === 'en2de' ? '#1565c0' : '#e5e7eb'
+          }}
+        >
+          <Text style={{ color: direction === 'en2de' ? '#fff' : '#111' }}>Englisch → Deutsch</Text>
+        </Pressable>
+      </View>
 
       {loading ? (
         <ActivityIndicator />
@@ -215,7 +265,7 @@ export default function QuizScreen() {
 
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
             <Pressable
-              onPress={() => nav.navigate('Review', { attempts, grade, unit, station, percent })}
+              onPress={() => nav.navigate('Review', { attempts, grade, unit, station, percent, direction })}
               style={{ backgroundColor: '#1565c0', paddingVertical: 10, borderRadius: 8, paddingHorizontal: 14 }}
             >
               <Text style={{ color: '#fff' }}>Ergebnis ansehen</Text>
@@ -241,7 +291,11 @@ export default function QuizScreen() {
       ) : (
         <View style={{ gap: 12 }}>
           <Text style={{ color: '#666' }}>Fortschritt: {progressLabel}</Text>
-          <Text style={{ fontSize: 24, fontWeight: '700' }}>{questionWord.de}</Text>
+
+          {/* Frage-Text je nach Richtung */}
+          <Text style={{ fontSize: 24, fontWeight: '700' }}>
+            {questionWord.qText}
+          </Text>
 
           {options.map((opt, idx) => {
             const chosen = picked === idx;
@@ -259,6 +313,15 @@ export default function QuizScreen() {
               </Pressable>
             );
           })}
+
+          {/* ↓ NEU: richtige Lösung sofort zeigen, wenn falsch gewählt wurde */}
+          {picked !== null && picked !== correctIndex && (
+            <View style={{ padding: 10, borderRadius: 8, backgroundColor: '#fff3cd', borderWidth: 1, borderColor: '#ffeeba' }}>
+              <Text style={{ color: '#7c6f00' }}>
+                Richtig wäre: <Text style={{ fontWeight: '700' }}>{options[correctIndex]}</Text>
+              </Text>
+            </View>
+          )}
 
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
             <Pressable
