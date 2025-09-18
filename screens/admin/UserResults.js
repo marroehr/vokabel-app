@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 const inputStyle = {
   borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 8
 };
-const btn = (bg='#2563eb') => ({
+const btn = (bg = '#2563eb') => ({
   backgroundColor: bg, padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 8
 });
 const btnTxt = { color: '#fff', fontWeight: '700' };
@@ -29,7 +29,6 @@ export default function UserResults() {
     (async () => {
       setLoadingUsers(true);
       try {
-        // Admin darf (per Policy) alle Profile lesen
         const { data, error } = await supabase
           .from('profiles')
           .select('id, full_name')
@@ -57,8 +56,8 @@ export default function UserResults() {
     setLoadingResults(true);
     try {
       const { data, error } = await supabase
-        .from('quiz_results') // ggf. Tabellennamen anpassen
-        .select('id, grade, unit, station, correct_count, total_count, percent, created_at')
+        .from('test_results') // <-- richtig
+        .select('id, grade, unit, station, correct, total, percent, created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
       if (error) throw error;
@@ -73,7 +72,6 @@ export default function UserResults() {
 
   const openAsUser = () => {
     if (!selectedUser) return;
-    // Deine TestHistoryScreen muss optional adminUserId auswerten:
     nav.navigate('TestHistory', { adminUserId: selectedUser.id, adminFullName: selectedUser.full_name });
   };
 
@@ -103,7 +101,8 @@ export default function UserResults() {
                 onPress={() => { setSelectedUser(item); loadResults(item.id); }}
                 style={{
                   padding: 10, borderRadius: 8, borderWidth: 1,
-                  borderColor: active ? '#111827' : '#e5e7eb', backgroundColor: active ? '#f1f5f9' : '#fff'
+                  borderColor: active ? '#111827' : '#e5e7eb',
+                  backgroundColor: active ? '#f1f5f9' : '#fff'
                 }}
               >
                 <Text style={{ fontWeight: '700' }}>{item.full_name || '(ohne Name)'}</Text>
@@ -139,7 +138,7 @@ export default function UserResults() {
                     Klasse {item.grade} · Unit {item.unit} · Station {item.station}
                   </Text>
                   <Text style={{ marginTop: 4 }}>
-                    {item.correct_count}/{item.total_count} richtig · {Math.round(item.percent)}%
+                    {item.correct}/{item.total} richtig · {Math.round(Number(item.percent))}%
                   </Text>
                   <Text style={{ color: '#6b7280', marginTop: 4 }}>
                     {new Date(item.created_at).toLocaleString()}

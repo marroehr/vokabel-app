@@ -8,11 +8,9 @@ export default function TestHistoryScreen({ route }) {
   const adminUserId = route?.params?.adminUserId || null;
   const adminFullName = route?.params?.adminFullName || null;
 
-  const [userId, setUserId] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Wer wird geladen? (eigener User oder Admin-Ziel)
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -24,11 +22,10 @@ export default function TestHistoryScreen({ route }) {
           if (!user) throw new Error('Nicht eingeloggt.');
           targetUserId = user.id;
         }
-        setUserId(targetUserId);
 
         const { data, error: qErr } = await supabase
-          .from('quiz_results') // ggf. Tabellennamen anpassen
-          .select('id, grade, unit, station, correct_count, total_count, percent, created_at')
+          .from('test_results') // <-- richtig
+          .select('id, grade, unit, station, correct, total, percent, created_at')
           .eq('user_id', targetUserId)
           .order('created_at', { ascending: false });
 
@@ -64,7 +61,7 @@ export default function TestHistoryScreen({ route }) {
                 Klasse {item.grade} · Unit {item.unit} · Station {item.station}
               </Text>
               <Text style={{ marginTop: 4 }}>
-                {item.correct_count}/{item.total_count} richtig · {Math.round(item.percent)}%
+                {item.correct}/{item.total} richtig · {Math.round(Number(item.percent))}%
               </Text>
               <Text style={{ color: '#6b7280', marginTop: 4 }}>
                 {new Date(item.created_at).toLocaleString()}
