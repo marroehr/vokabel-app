@@ -12,32 +12,48 @@ function shuffle(arr) {
 const normalize = (s) => {
   if (!s) return '';
   let t = s.trim().toLowerCase();
-  t = t.replace(/ß/g, 'ss')
-       .replace(/ä/g, 'ae')
-       .replace(/ö/g, 'oe')
-       .replace(/ü/g, 'ue')
-       .replace(/\s+/g, ' ');
+  t = t
+    .replace(/ß/g, 'ss')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:!?()"']/g, '');
   return t;
 };
 
-const toSolutions = (de, answers) => {
-  const base = [];
-  if (answers && answers.trim()) {
-    base.push(...answers.split('|').map(s => s.trim()).filter(Boolean));
-  } else if (de) {
-    base.push(de);
-  }
+// Nimmt Text aus DB (z. B. "ignorant; unwissend") und erzeugt Lösungsmenge.
+// Akzeptiert sowohl ";" als auch "|" als Trenner – beides funktioniert.
+const toSolutions = (text) => {
+  if (!text || !text.trim()) return [];
+  const parts = text
+    .split(/[;|]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
   const set = new Set();
-  base.forEach(x => {
+  parts.forEach(x => {
     set.add(x);
-    set.add(x.replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss'));
+    set.add(
+      x
+        .replace(/ä/g, 'ae')
+        .replace(/ö/g, 'oe')
+        .replace(/ü/g, 'ue')
+        .replace(/ß/g, 'ss')
+    );
   });
   return Array.from(set);
 };
 
-const buildPrompt = (row) => {
-  if (row.cloze_de && row.cloze_de.includes('___')) return row.cloze_de;
-  return `Setze das deutsche Wort für **${row.en}** ein: ___`;
+const buildPrompt = (row, direction, hasClozeEn = false) => {
+  if (direction === 'en->de') {
+    if (row.cloze_de && row.cloze_de.includes('___')) return row.cloze_de;
+    return `Setze das **deutsche** Wort für **${row.en}** ein: ___`;
+  } else {
+    // Wenn du eine Spalte cloze_en hast, kannst du sie wie unten verwenden.
+    if (hasClozeEn && row.cloze_en && row.cloze_en.includes('___')) return row.cloze_en;
+    return `Setze das **englische** Wort für **${row.de}** ein: ___`;
+  }
 };
 
 export default function ClozeQuizScreen() {
@@ -46,6 +62,9 @@ export default function ClozeQuizScreen() {
   const grade = params?.grade;
   const unit = params?.unit;
   const station = params?.station;
+
+  // Richtung: 'en->de' (Standard) oder 'de->en'
+  const [direction, setDirection] = useState(params?.direction === 'de->en' ? 'de->en' : 'en->de');
 
   const [pool, setPool] = useState([]);
   const [order, setOrder] = useState([]);
@@ -68,12 +87,17 @@ export default function ClozeQuizScreen() {
     [currentIdx, locked, total]
   );
 
+  // Falls du 'cloze_en' hinzufügst: auf true setzen, Spalte mit selektieren (s. Kommentar unten)
+  const HAS_CLOZE_EN_COLUMN = false;
+
   const fetchPool = useCallback(async () => {
     setLoading(true);
     try {
+      // WICHTIG: nur existierende Spalten selektieren (cloze_en nur, wenn vorhanden)
+      const selectCols = 'id,de,en,grade,unit,station,cloze_de' + (HAS_CLOZE_EN_COLUMN ? ',cloze_en' : '');
       const { data, error } = await supabase
-        .from('words') // <-- Plural
-        .select('id,de,en,grade,unit,station,cloze_de,answers')
+        .from('words')
+        .select(selectCols)
         .eq('grade', grade)
         .eq('unit', unit)
         .eq('station', station);
@@ -119,16 +143,28 @@ export default function ClozeQuizScreen() {
       else setCurrentIdx(i => i + 1);
       return;
     }
-    const prompt = buildPrompt(row);
-    const solutions = toSolutions(row.de, row.answers);
-    setCurrent({ ...row, prompt, solutions });
+
+    const prompt = buildPrompt(row, direction, HAS_CLOZE_EN_COLUMN);
+
+    // Primäre Lösung (erste Variante im jeweiligen Feld) – wird bei „Falsch“ angezeigt
+    const primarySource = direction === 'en->de' ? row.de : row.en;
+    const primarySolution =
+      (primarySource || '')
+        .split(/[;|]/)
+        .map(s => s.trim())
+        .filter(Boolean)[0] || '';
+
+    // Ziel-Lösungen je nach Richtung aus de/en (mit ; oder | getrennt)
+    const solutions = toSolutions(direction === 'en->de' ? row.de : row.en);
+
+    setCurrent({ ...row, prompt, solutions, primarySolution });
     setAnswer('');
     setLocked(false);
-  }, [pool, order, currentIdx]);
+  }, [pool, order, currentIdx, direction]);
 
   useEffect(() => {
     if (!loading && !finished) buildTask();
-  }, [loading, finished, currentIdx, buildTask]);
+  }, [loading, finished, currentIdx, buildTask, direction]);
 
   const check = useCallback(() => {
     if (!current || locked) return;
@@ -143,14 +179,15 @@ export default function ClozeQuizScreen() {
         en: current.en,
         prompt: current.prompt,
         user: answer,
-        solution: current.solutions[0],
+        solution: current.primarySolution || current.solutions[0] || '',
         isCorrect: ok,
+        direction
       }
     ]);
 
     if (ok) setCorrectCount(c => c + 1);
     setLocked(true);
-  }, [current, answer, locked]);
+  }, [current, answer, locked, direction]);
 
   const next = useCallback(() => {
     if (currentIdx + 1 >= order.length) {
@@ -178,7 +215,7 @@ export default function ClozeQuizScreen() {
     return Math.round((correctCount / total) * 100);
   }, [correctCount, total]);
 
-  // Ergebnis speichern (analog zum MC-Quiz)
+  // Ergebnis speichern
   useEffect(() => {
     if (!finished || savedResult || total === 0) return;
     (async () => {
@@ -196,7 +233,7 @@ export default function ClozeQuizScreen() {
           total,
           correct: correctCount,
           percent,
-          mode: 'cloze',
+          mode: direction === 'en->de' ? 'cloze-en->de' : 'cloze-de->en',
         });
 
         setSavedResult(true);
@@ -204,7 +241,30 @@ export default function ClozeQuizScreen() {
         console.error('saveResult error', e);
       }
     })();
-  }, [finished, savedResult, total, correctCount, percent, grade, unit, station]);
+  }, [finished, savedResult, total, correctCount, percent, grade, unit, station, direction]);
+
+  const DirectionToggle = () => (
+    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+      <Pressable
+        onPress={() => setDirection('en->de')}
+        style={{
+          paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
+          backgroundColor: direction === 'en->de' ? '#1565c0' : '#e0e0e0'
+        }}
+      >
+        <Text style={{ color: direction === 'en->de' ? '#fff' : '#111' }}>Englisch → Deutsch</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => setDirection('de->en')}
+        style={{
+          paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
+          backgroundColor: direction === 'de->en' ? '#1565c0' : '#e0e0e0'
+        }}
+      >
+        <Text style={{ color: direction === 'de->en' ? '#fff' : '#111' }}>Deutsch → Englisch</Text>
+      </Pressable>
+    </View>
+  );
 
   return (
     <ScreenContainer>
@@ -215,6 +275,8 @@ export default function ClozeQuizScreen() {
       <Pressable onPress={() => nav.goBack()} style={{ marginBottom: 8, alignSelf: 'flex-start' }}>
         <Text style={{ color: '#1565c0' }}>← Zurück</Text>
       </Pressable>
+
+      <DirectionToggle />
 
       {loading ? (
         <ActivityIndicator />
@@ -296,7 +358,7 @@ export default function ClozeQuizScreen() {
             )}
 
             <Text style={{ textAlign: 'center', opacity: 0.6, marginTop: 8 }}>
-              Tipp: Umlaute/ß tolerant (ae/oe/ue/ss).
+              Tipp: Umlaute/ß tolerant (ae/oe/ue/ss). Mehrere Lösungen mit „;“ oder „|“ trennen.
             </Text>
           </View>
         </KeyboardAvoidingView>
