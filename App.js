@@ -10,6 +10,8 @@ import QuizScreen from './screens/QuizScreen';
 import ReviewScreen from './screens/ReviewScreen';
 import TestHistoryScreen from './screens/TestHistoryScreen';
 import AdminScreen from './screens/AdminScreen';
+import ClozeQuizScreen from './screens/ClozeQuizScreen';
+import ClozeResult from './screens/ClozeResult';
 
 const Stack = createNativeStackNavigator();
 
@@ -24,6 +26,8 @@ export default function App() {
         <Stack.Screen name="Review" component={ReviewScreen} options={{ title: 'Auswertung' }} />
         <Stack.Screen name="TestHistory" component={TestHistoryScreen} options={{ title: 'Ergebnisse' }} />
         <Stack.Screen name="Admin" component={AdminScreen} options={{ title: 'Admin-Bereich' }} />
+		<Stack.Screen name="ClozeQuiz" component={ClozeQuizScreen} options={{ title: 'Lückentext-Quiz' }} />
+        <Stack.Screen name="ClozeResult" component={ClozeResult} options={{ title: 'Ergebnis' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
