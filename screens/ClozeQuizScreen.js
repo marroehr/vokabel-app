@@ -22,8 +22,7 @@ const normalize = (s) => {
   return t;
 };
 
-// Nimmt Text aus DB (z. B. "ignorant; unwissend") und erzeugt Lösungsmenge.
-// Akzeptiert sowohl ";" als auch "|" als Trenner – beides funktioniert.
+// Akzeptiert ";" oder "|" als Trenner, generiert zudem Umlaut-Varianten
 const toSolutions = (text) => {
   if (!text || !text.trim()) return [];
   const parts = text
@@ -50,7 +49,6 @@ const buildPrompt = (row, direction, hasClozeEn = false) => {
     if (row.cloze_de && row.cloze_de.includes('___')) return row.cloze_de;
     return `Setze das **deutsche** Wort für **${row.en}** ein: ___`;
   } else {
-    // Wenn du eine Spalte cloze_en hast, kannst du sie wie unten verwenden.
     if (hasClozeEn && row.cloze_en && row.cloze_en.includes('___')) return row.cloze_en;
     return `Setze das **englische** Wort für **${row.de}** ein: ___`;
   }
@@ -87,13 +85,12 @@ export default function ClozeQuizScreen() {
     [currentIdx, locked, total]
   );
 
-  // Falls du 'cloze_en' hinzufügst: auf true setzen, Spalte mit selektieren (s. Kommentar unten)
+  // Optional: falls du cloze_en in der DB hast → true setzen und unten in selectCols mit auswählen
   const HAS_CLOZE_EN_COLUMN = false;
 
   const fetchPool = useCallback(async () => {
     setLoading(true);
     try {
-      // WICHTIG: nur existierende Spalten selektieren (cloze_en nur, wenn vorhanden)
       const selectCols = 'id,de,en,grade,unit,station,cloze_de' + (HAS_CLOZE_EN_COLUMN ? ',cloze_en' : '');
       const { data, error } = await supabase
         .from('words')
@@ -146,7 +143,6 @@ export default function ClozeQuizScreen() {
 
     const prompt = buildPrompt(row, direction, HAS_CLOZE_EN_COLUMN);
 
-    // Primäre Lösung (erste Variante im jeweiligen Feld) – wird bei „Falsch“ angezeigt
     const primarySource = direction === 'en->de' ? row.de : row.en;
     const primarySolution =
       (primarySource || '')
@@ -154,7 +150,6 @@ export default function ClozeQuizScreen() {
         .map(s => s.trim())
         .filter(Boolean)[0] || '';
 
-    // Ziel-Lösungen je nach Richtung aus de/en (mit ; oder | getrennt)
     const solutions = toSolutions(direction === 'en->de' ? row.de : row.en);
 
     setCurrent({ ...row, prompt, solutions, primarySolution });
@@ -215,6 +210,43 @@ export default function ClozeQuizScreen() {
     return Math.round((correctCount / total) * 100);
   }, [correctCount, total]);
 
+  // --- Sprachwechsel-Schutz / Neustart-Logik ---
+
+  // Wechsel nur erlaubt, wenn noch nichts beantwortet wurde
+  const canSwitchDirection = useMemo(() => {
+    return !loading && !finished && attempts.length === 0 && currentIdx === 0 && !locked;
+  }, [loading, finished, attempts.length, currentIdx, locked]);
+
+  const restartWithDirection = useCallback((dir) => {
+    setDirection(dir);
+    if (!pool.length) return;
+    const ids = shuffle(pool.map(w => w.id));
+    setOrder(ids);
+    setCurrentIdx(0);
+    setFinished(false);
+    setCorrectCount(0);
+    setAttempts([]);
+    setSavedResult(false);
+    setAnswer('');
+    setLocked(false);
+  }, [pool]);
+
+  const handleDirectionChange = useCallback((dir) => {
+    if (direction === dir) return;
+    if (canSwitchDirection) {
+      setDirection(dir); // useEffect/ buildTask reagieren auf direction
+    } else {
+      Alert.alert(
+        'Richtung wechseln?',
+        'Du hast schon Fragen beantwortet. Beim Wechsel wird der Test von vorne begonnen.',
+        [
+          { text: 'Abbrechen', style: 'cancel' },
+          { text: 'Neu starten', style: 'destructive', onPress: () => restartWithDirection(dir) }
+        ]
+      );
+    }
+  }, [direction, canSwitchDirection, restartWithDirection]);
+
   // Ergebnis speichern
   useEffect(() => {
     if (!finished || savedResult || total === 0) return;
@@ -246,18 +278,22 @@ export default function ClozeQuizScreen() {
   const DirectionToggle = () => (
     <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
       <Pressable
-        onPress={() => setDirection('en->de')}
+        onPress={() => handleDirectionChange('en->de')}
+        disabled={!canSwitchDirection && direction !== 'en->de'}
         style={{
           paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
+          opacity: (!canSwitchDirection && direction !== 'en->de') ? 0.5 : 1,
           backgroundColor: direction === 'en->de' ? '#1565c0' : '#e0e0e0'
         }}
       >
         <Text style={{ color: direction === 'en->de' ? '#fff' : '#111' }}>Englisch → Deutsch</Text>
       </Pressable>
       <Pressable
-        onPress={() => setDirection('de->en')}
+        onPress={() => handleDirectionChange('de->en')}
+        disabled={!canSwitchDirection && direction !== 'de->en'}
         style={{
           paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
+          opacity: (!canSwitchDirection && direction !== 'de->en') ? 0.5 : 1,
           backgroundColor: direction === 'de->en' ? '#1565c0' : '#e0e0e0'
         }}
       >
