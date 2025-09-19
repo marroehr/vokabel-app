@@ -55,7 +55,7 @@ export default function SelectCourseScreen() {
   const nav = useNavigation();
 
   const [grades, setGrades] = useState([]);
-  const [units, setUnits] = useState([]);
+  the [units, setUnits] = useState([]);
   const [stations, setStations] = useState([]);
 
   const [grade, setGrade] = useState(null);
@@ -220,7 +220,11 @@ export default function SelectCourseScreen() {
           </>
         )}
 
-        <View style={{ gap: 10 }}>
+        {/* === Quizart wählen === */}
+        <View style={{ marginTop: 16 }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', marginBottom: 12 }}>Quizart wählen</Text>
+
+          {/* Multiple Choice */}
           <Pressable
             onPress={goQuiz}
             disabled={!grade || !unit || !station}
@@ -237,6 +241,10 @@ export default function SelectCourseScreen() {
             </Text>
           </Pressable>
 
+          {/* Abstand klar erzwingen (statt gap) */}
+          <View style={{ height: 10 }} />
+
+          {/* Lückentext */}
           <Pressable
             onPress={goCloze}
             disabled={!grade || !unit || !station}
