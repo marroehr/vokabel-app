@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import ScreenContainer from '../components/ScreenContainer';
 import { supabase } from '../lib/supabase';
 
-// Distinct-Helper
+// Distinct-Helper (alle aus "words")
 async function getDistinctGrades() {
   const { data, error, status } = await supabase
     .from('words')
@@ -71,15 +71,14 @@ export default function SelectCourseScreen() {
     (async () => {
       setLoadingGrades(true);
       try {
-        // 1) Test: words erreichbar?
+        // Test: words erreichbar?
         const test = await supabase.from('words').select('id, grade').limit(3);
         console.log('[words test] status', test.status, 'error', test.error?.message || null, 'rows', test.data?.length);
 
-        // 2) eigentliche Klassen
+        // eigentliche Klassen
         const g = await getDistinctGrades();
         if (!mounted) return;
         setGrades(g);
-        console.log('[grades]', g);
         if (g.length === 0) {
           Alert.alert('Hinweis', 'Keine Klassen in der Datenbank gefunden.');
         }
@@ -107,7 +106,6 @@ export default function SelectCourseScreen() {
         const u = await getDistinctUnits(grade);
         if (!mounted) return;
         setUnits(u);
-        console.log('[units]', u);
         if (u.length === 0) Alert.alert('Hinweis', `Keine Units für Klasse ${grade} gefunden.`);
       } catch (e) {
         console.error('[units load EXC]', e);
@@ -131,7 +129,6 @@ export default function SelectCourseScreen() {
         const s = await getDistinctStations(grade, unit);
         if (!mounted) return;
         setStations(s);
-        console.log('[stations]', s);
         if (s.length === 0) Alert.alert('Hinweis', `Keine Stationen für Klasse ${grade}, Unit ${unit} gefunden.`);
       } catch (e) {
         console.error('[stations load EXC]', e);
@@ -146,6 +143,11 @@ export default function SelectCourseScreen() {
   const goQuiz = useCallback(() => {
     if (!grade || !unit || !station) return;
     nav.navigate('Quiz', { grade, unit, station });
+  }, [nav, grade, unit, station]);
+
+  const goCloze = useCallback(() => {
+    if (!grade || !unit || !station) return;
+    nav.navigate('ClozeQuiz', { grade, unit, station });
   }, [nav, grade, unit, station]);
 
   const chip = (activeColor, isActive) => ({
@@ -218,19 +220,39 @@ export default function SelectCourseScreen() {
           </>
         )}
 
-        <Pressable
-          onPress={goQuiz}
-          disabled={!grade || !unit || !station}
-          style={{
-            opacity: !grade || !unit || !station ? 0.5 : 1,
-            paddingVertical: 12,
-            borderRadius: 10,
-            alignItems: 'center',
-            backgroundColor: '#111',
-          }}
-        >
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Weiter zum Quiz</Text>
-        </Pressable>
+        <View style={{ gap: 10 }}>
+          <Pressable
+            onPress={goQuiz}
+            disabled={!grade || !unit || !station}
+            style={{
+              opacity: !grade || !unit || !station ? 0.5 : 1,
+              paddingVertical: 12,
+              borderRadius: 10,
+              alignItems: 'center',
+              backgroundColor: '#111',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+              Weiter zum Quiz (Multiple Choice)
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={goCloze}
+            disabled={!grade || !unit || !station}
+            style={{
+              opacity: !grade || !unit || !station ? 0.5 : 1,
+              paddingVertical: 12,
+              borderRadius: 10,
+              alignItems: 'center',
+              backgroundColor: '#1565c0',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+              Weiter zum Lückentext-Quiz
+            </Text>
+          </Pressable>
+        </View>
 
         <Pressable onPress={() => nav.goBack()} style={{ marginTop: 16, alignSelf: 'center' }}>
           <Text style={{ color: '#1565c0', fontWeight: '600' }}>Zurück</Text>

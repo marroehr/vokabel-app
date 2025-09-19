@@ -72,7 +72,7 @@ export default function ClozeQuizScreen() {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('word') // <— wichtig: Singular
+        .from('words') // <-- Plural
         .select('id,de,en,grade,unit,station,cloze_de,answers')
         .eq('grade', grade)
         .eq('unit', unit)
@@ -178,7 +178,7 @@ export default function ClozeQuizScreen() {
     return Math.round((correctCount / total) * 100);
   }, [correctCount, total]);
 
-  // Ergebnis (optional) speichern – gleiche Logik wie in deinem QuizScreen
+  // Ergebnis speichern (analog zum MC-Quiz)
   useEffect(() => {
     if (!finished || savedResult || total === 0) return;
     (async () => {
@@ -196,7 +196,7 @@ export default function ClozeQuizScreen() {
           total,
           correct: correctCount,
           percent,
-          mode: 'cloze', // kennzeichne Lückentext
+          mode: 'cloze',
         });
 
         setSavedResult(true);
@@ -226,7 +226,6 @@ export default function ClozeQuizScreen() {
           </Text>
 
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {/* Optional: eigener Review-Screen */}
             <Pressable
               onPress={restart}
               style={{ backgroundColor: '#111', paddingVertical: 10, borderRadius: 8, paddingHorizontal: 14 }}

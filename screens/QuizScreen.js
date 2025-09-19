@@ -17,7 +17,7 @@ export default function QuizScreen() {
   const unit = params?.unit;
   const station = params?.station;
 
-  // ↓ NEU: Richtung des Quizzes (de->en | en->de)
+  // Richtung des Quizzes (de->en | en->de)
   const [direction, setDirection] = useState('de2en');
 
   // Voller Pool
@@ -56,7 +56,7 @@ export default function QuizScreen() {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('words')
+        .from('words') // <-- Plural
         .select('id, de, en')
         .eq('grade', grade)
         .eq('unit', unit)
@@ -104,7 +104,6 @@ export default function QuizScreen() {
 
     const distractors = shuffle(pool.filter(w => w.id !== correct.id)).slice(0, 3);
 
-    // ↓ NEU: je nach Richtung andere Seiten fragen/antworten
     const qText = direction === 'de2en' ? correct.de : correct.en;
     const correctText = direction === 'de2en' ? correct.en : correct.de;
     const distractorTexts = distractors.map(d => (direction === 'de2en' ? d.en : d.de));
@@ -118,10 +117,8 @@ export default function QuizScreen() {
     setPicked(null);
   }, [pool, order, currentIdx, direction]);
 
-  // initial + wenn Auswahl oder Richtung geändert wird
   useEffect(() => { fetchPool(); }, [fetchPool]);
   useEffect(() => { if (!loading && !finished) buildQuestion(); }, [loading, buildQuestion, finished, currentIdx]);
-  // bei Richtungswechsel Quiz neu starten (gleicher Pool)
   useEffect(() => {
     if (!pool.length) return;
     const ids = shuffle(pool.map(w => w.id));
@@ -146,7 +143,7 @@ export default function QuizScreen() {
         id: questionWord.id,
         de: questionWord.de,
         en: questionWord.en,
-        qText: questionWord.qText,        // angezeigte Frage
+        qText: questionWord.qText,
         chosenIndex: idx,
         chosenText: options[idx],
         correctIndex,
@@ -158,7 +155,6 @@ export default function QuizScreen() {
     ]);
 
     try {
-      // optionales Logging (falls vorhanden)
       await supabase.rpc('record_attempt', { p_word_id: questionWord.id, p_is_correct: isCorrect });
     } catch (e) {
       console.error('record_attempt error', e);
@@ -212,7 +208,7 @@ export default function QuizScreen() {
           total,
           correct: correctCount,
           percent,
-          mode: direction, // Richtung mit speichern (optional Spalte in DB anlegen)
+          mode: direction,
         });
 
         setSavedResult(true);
@@ -292,7 +288,6 @@ export default function QuizScreen() {
         <View style={{ gap: 12 }}>
           <Text style={{ color: '#666' }}>Fortschritt: {progressLabel}</Text>
 
-          {/* Frage-Text je nach Richtung */}
           <Text style={{ fontSize: 24, fontWeight: '700' }}>
             {questionWord.qText}
           </Text>
@@ -314,7 +309,6 @@ export default function QuizScreen() {
             );
           })}
 
-          {/* ↓ NEU: richtige Lösung sofort zeigen, wenn falsch gewählt wurde */}
           {picked !== null && picked !== correctIndex && (
             <View style={{ padding: 10, borderRadius: 8, backgroundColor: '#fff3cd', borderWidth: 1, borderColor: '#ffeeba' }}>
               <Text style={{ color: '#7c6f00' }}>
